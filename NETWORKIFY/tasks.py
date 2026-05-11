@@ -20,7 +20,7 @@ def _start_job(job_id : int) -> AnalysisJob:
     db.session.commit()
     return job
 
-def complete_job(job : AnalysisJob):
+def _complete_job(job : AnalysisJob):
     job.status = AnalysisStatus.COMPLETED
     job.completed_at = datetime.now(timezone.utc)
     job.duration_sec = (job.completed_at - job.started_at).total_seconds()
@@ -176,3 +176,58 @@ def run_load_flow(self, job_id : int):
 #-----------------------------------------------------------
 #----------------------SHORT CIRCUIT-----------------------
 #-----------------------------------------------------------
+@celery.task(bind = True, name = 'tasks.run_short-circuit')
+def run_short_circuit(self, job_id : int):
+    job = _start_job(job_id)
+    _emit_progress(job_id, "Short Circuit Analysis....",5)
+    try:
+        config = job.config
+        fault_type = config.get("fault_type", "3ph")
+        bus_index = config.get("bus_index", None)
+        _emit_progress(job_id, "Loading Network", 15)
+        net = _load_net(job)
+
+        _emit_progress(job_id, f"Computing {fault_type} Fault currents", 40)
+        sc.calc_sc(
+            net, 
+            fault= fault_type,
+            case= "max",
+            ip= True,
+            ith= True,
+            bus = bus_index
+        )
+        _emit_progress(job_id, "Saving Fault results..", 70)
+        fault_enum = FaultType(fault_type)
+        for idx, row in net.res_bus_sc.iterrows():
+            db.session.add(FaultResult(
+                job_id = job.id,
+                fault_type = fault_type,
+                fault_bus_id = Bus.query.filter_by(network_id = job.network_id, pp_index = idx).first().id if Bus.query.filter_by(network_id = job.network_id, pp_index= idx).first() else None,
+                ikss_ka = float(row.get("ikss_ka")),
+                skss_mw = float(row.get("skss_mw")),
+                ip_ka = float(row.get("ip_ka")),
+                ith_ka = float(row.get("ith_ka")),
+                raw_json = json.dumps(row.where(pd.notnull(row), None).to_dict())
+            ))
+        job.results_json = json.dumps({
+                "fault_type":    fault_type,
+                "bus_count":     len(net.res_bus_sc),
+                "max_ikss_ka":   float(net.res_bus_sc["ikss_ka"].max()),
+                "min_ikss_ka":   float(net.res_bus_sc["ikss_ka"].min()),
+                "critical_bus":  int(net.res_bus_sc["ikss_ka"].idxmax()),
+                "res_bus_sc":    json.loads(_df_to_json(net.res_bus_sc)),
+            })
+        db.session.commit()
+        _complete_job(job)
+        _emit_progress(job_id, "Short Circuit Analysis Complete", 100)
+        _emit("analysis_complete", job_id, {
+                "status" : 'complete',
+                "fault_type" : fault_type,
+                "critical_bus": int(net.res_bus_sc["ikss_ka"].idmax()),
+                "max_ikss_ka": float(net.res_bus_sc["ikss_ka"].max())
+            })
+    except Exception as e:
+        _fail_job(job, str(e))
+        _emit("analysis_error", job_id, {'error':str(e)})
+        raise
+        
