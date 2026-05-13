@@ -323,4 +323,63 @@ def run_contingency(self, job_id:int):
         _fail_job(job. str(e))
         _emit("analysis_error", job_id, {"error":str(e)})
         raise
+#--------------------------------------------------------------
+#--------------------OPTIMAL POWER FLOW------------------------
+#--------------------------------------------------------------
+@celery(bind= True, name = 'tasks.run_opf')
+def run_opf(self, job_id :int):
+    job = _start_job(job_id)
+    _emit_progress(job_id, 'Starting Optimal Power Flow...', 5)
+    try:
+        _emit_progress(job_id, 'Loading Network', 15)
+        net = _load_net(job)
+        #---------Validate cost function exist----------
+        if net.poly_cost.empty and net.pwl_cost.empty:
+            raise ValueError(
+                "No cost functions found."
+                "Add Polynomial or Piecewise-linear costs to generators before running OPF"
+
+            )
+        #-------Base Case Load Flow First---------------
+        _emit_progress(job_id, "Running Base case Load Flow", 30)
+        pp.runpp(net, numba = False)
+        base_gen_dispatch = net.res_gen["p_mw"].tolist() if not net.res_gen.empty else []
+        base_loss = float(net.res_line["pl_mw"].sum()) if not net.res_line.empty else 0
+        #----------Run OPF------------------------------------
+        _emit_progress(job_id, "Running Optimal Power Flow.. (This May take a Moment)....", 55)
+        pp.runopp(net, verbose= False, numba = False)
+        if not net.OPF_converged:
+            raise RuntimeError("OPF did not converge. Check generator limits and cost functions")
+        #---------Extract results-------------------------
+        _emit_progress(job_id, "Saving OPF results", 80)
+        opf_gen_dispatch = net.res_gen['p_mw'].tolist() if not net.res_gen.empty else []
+        opf_loss = float(net.res_line["pl_mw"].sum()) if not net.res_line.empty else 0
+        total_cost = float(net.res_cost) if hasattr(net, "res_cost") else None
+
+        
+        job.results_json = json.dumps({
+            "opf_converged":      True,
+            "total_cost":         total_cost,
+            "base_loss_mw":       base_loss,
+            "opf_loss_mw":        opf_loss,
+            "loss_reduction_mw":  round(base_loss - opf_loss, 4),
+            "base_gen_dispatch":  base_gen_dispatch,
+            "opf_gen_dispatch":   opf_gen_dispatch,
+            "res_bus":  json.loads(_df_to_json(net.res_bus)),
+            "res_gen":  json.loads(_df_to_json(net.res_gen)),
+            "res_line": json.loads(_df_to_json(net.res_line)),
+        })
+        db.session.commit()
+        _complete_job(job)
+        _emit_progress(job_id, "OPF Completed", 100)
+        _emit("Analysis Complete", job_id, {
+            "status": "completed",
+            "total_cost": total_cost,
+            "loss_reduction_mw" : round(base_loss-opf_loss, 4),
+        })
+    except Exception as e:
+        _fail_job(job, str(e))
+        _emit("Analysis error", job_id, {"error": str(e)})
+        raise
+
                     
