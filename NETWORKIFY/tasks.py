@@ -230,4 +230,97 @@ def run_short_circuit(self, job_id : int):
         _fail_job(job, str(e))
         _emit("analysis_error", job_id, {'error':str(e)})
         raise
-        
+
+#-------------------------------------------------------
+#--------------------N-1 CONTINGENCY --------------------
+#-------------------------------------------------------
+@celery.task(bind = True, name = "tasks.run_contingency")
+def run_contingency(self, job_id:int):
+    job = _start_job(job_id)
+    _emit_progress(job_id, "Starting N-1 Contingency analysis...", 5)
+    try:
+        config = job.config
+        v_min = float(config.get("v_min",0.95))
+        v_max = float(config.get("v_max",1.05))
+        net = _load_net(job)
+        contingencies = []
+        for idx, row in net.line.iterrows():
+            contingencies.append((ElementType.LINE, idx, row.get("name", f"line_{idx}")))
+        for idx, row in net.trafo.iterrows():
+            contingencies.append((ElementType.TRANSFORMER, idx, row.get("name", f"trafo_{idx}")))
+        total = len(contingencies)
+        results = []
+        all_results = []
+        _emit_progress(job_id, f"Running {total} contingency cases...", 10)
+        for i ,(elem_type, elem_idx, elem_name) in enumerate(contingencies):
+            if elem_type == ElementType.LINE:
+                net.line.at[elem_idx, "in_servicer"] = False
+            else:
+                net.trafo.at[elem_idx, "in_service"] = False
+            converged = False
+            max_loading = None
+            min_vm = None
+            max_vm = None
+            violation_count = 0
+            try:
+                pp.runpp(net, algorithm="nr", numba = False)
+                converged = net.converged
+                if converged:
+                    max_loading = float(net.res_line["loading_percent"].max()) if not net.res_line.empty else None
+                    min_vm = float(net.res_bus["vm_pu"].min())
+                    max_vm = float(net.res_bus["vm_pu"].max())
+                    v_viols = ((net.res_bus["vm_pu"] < v_min) | (net.res_bus["vm_pu"] > v_max)).sum()
+                    l_viols = (net.res_line["loading_percent"] > 100.0).sum() if not net.res_line.empty else 0
+                    violation_count = int(v_viols + l_viols)
+            except Exception:
+                converged = False
+            if elem_type == ElementType.LINE:
+                net.line.at[elem_idx, "in_service"] = True
+            else:
+                net.trafo.at[elem_idx,"in_service"] = True
+            risk_score = round((violation_count*10)+ (max_loading -100.0 if max_loading and max_loading > 100.0 else 0),2)
+            cr = ContingencyResult(
+                job_id               = job.id,
+                outaged_element_type = elem_type,
+                outaged_pp_index     = elem_idx,
+                outaged_name         = elem_name,
+                converged            = converged,
+                max_loading_percent  = max_loading,
+                min_vm_pu            = min_vm,
+                max_vm_pu            = max_vm,
+                violation_count      = violation_count,
+                risk_score           = risk_score,
+            )
+            db.session.add(cr)
+            all_results.append({
+                "element":        elem_name,
+                "type":           elem_type.value,
+                "converged":      converged,
+                "max_loading":    max_loading,
+                "min_vm_pu":      min_vm,
+                "violation_count":violation_count,
+                "risk_score":     risk_score,
+            })
+            percent = 10 + int((i+ 1)/ total *85)
+            _emit_progress(job_id, f"Contingency {i+1}/{total} : {elem_name}", percent)
+        all_results.sort(key = lambda x : x["risk_score"], reverse = True)
+        job.results_json = json.dumps({
+            "total_contingencies": total,
+            "failed_convergence":  sum(1 for r in all_results if not r["converged"]),
+            "with_violations":     sum(1 for r in all_results if r["violation_count"] > 0),
+            "top_risks":           all_results[:10],   # top 10 riskiest
+        })
+        db.session.commit()
+        _complete_job(job)
+        _emit_progress(job_id, "Contingency Analysis Completed", 100)
+        _emit("analysis_complete", job_id , {
+            "status" : "completed",
+            "total_contingencies": total,
+            "with_violations": sum(1 for r in all_results if r["violation_count"]> 0),
+            "top_risk_element" : all_results[0]["element"] if all_results else None,
+        })
+    except Exception as e:
+        _fail_job(job. str(e))
+        _emit("analysis_error", job_id, {"error":str(e)})
+        raise
+                    
