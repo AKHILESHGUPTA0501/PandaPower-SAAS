@@ -203,10 +203,10 @@ def run_short_circuit(self, job_id : int):
                 job_id = job.id,
                 fault_type = fault_type,
                 fault_bus_id = Bus.query.filter_by(network_id = job.network_id, pp_index = idx).first().id if Bus.query.filter_by(network_id = job.network_id, pp_index= idx).first() else None,
-                ikss_ka = float(row.get("ikss_ka")),
-                skss_mw = float(row.get("skss_mw")),
-                ip_ka = float(row.get("ip_ka")),
-                ith_ka = float(row.get("ith_ka")),
+                ikss_ka = _safe_float(row.get("ikss_ka")),
+                skss_mw = _safe_float(row.get("skss_mw")),
+                ip_ka = _safe_float(row.get("ip_ka")),
+                ith_ka = _safe_float(row.get("ith_ka")),
                 raw_json = json.dumps(row.where(pd.notnull(row), None).to_dict())
             ))
         job.results_json = json.dumps({
@@ -382,4 +382,136 @@ def run_opf(self, job_id :int):
         _emit("Analysis error", job_id, {"error": str(e)})
         raise
 
+
+
+def _build_excel_report(job, network, results, violations) -> str:
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment
+    import os
+
+    file_path = f"reports/{job.id}_{job.analysis_type.value}.xlsx"
+    os.makedirs("reports", exist_ok=True)
+
+    wb = openpyxl.Workbook()
+
+    # ── Summary sheet ─────────────────────────
+    ws = wb.active
+    ws.title = "Summary"
+    header_font = Font(bold=True, color="FFFFFF")
+    header_fill = PatternFill("solid", fgColor="1F4E79")
+
+    ws.append(["Power System Analysis Report"])
+    ws["A1"].font = Font(bold=True, size=14)
+    ws.append(["Network",       network.name])
+    ws.append(["Analysis Type", job.analysis_type.value])
+    ws.append(["Status",        job.status.value])
+    ws.append(["Duration (s)",  job.duration_sec])
+    ws.append(["Generated At",  datetime.now(timezone.utc).isoformat()])
+    ws.append([])
+
+    # ── Violations sheet ──────────────────────
+    ws_v = wb.create_sheet("Violations")
+    headers = ["Element Type", "Index", "Name", "Violation", "Severity", "Value", "Limit", "Unit", "Message"]
+    ws_v.append(headers)
+    for cell in ws_v[1]:
+        cell.font = header_font
+        cell.fill = header_fill
+
+    for v in violations:
+        ws_v.append([
+            v.element_type.value, v.element_pp_index, v.element_name,
+            v.violation_type, v.severity.value,
+            v.value, v.limit, v.unit, v.message,
+        ])
+
+    # ── Results sheets (bus / line) ───────────
+    for key in ["res_bus", "res_line", "res_trafo"]:
+        data = results.get(key)
+        if not data:
+            continue
+        ws_r = wb.create_sheet(key)
+        if data:
+            ws_r.append(list(data[0].keys()))
+            for row in data:
+                ws_r.append(list(row.values()))
+
+    wb.save(file_path)
+    return file_path
+
+
+def _build_pdf_report(job, network, results, violations) -> str:
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib import colors
+    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.platypus import (
+        SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+    )
+    import os
+
+    file_path = f"reports/{job.id}_{job.analysis_type.value}.pdf"
+    os.makedirs("reports", exist_ok=True)
+
+    doc    = SimpleDocTemplate(file_path, pagesize=A4)
+    styles = getSampleStyleSheet()
+    story  = []
+
+    # ── Title ─────────────────────────────────
+    story.append(Paragraph("Power System Analysis Report", styles["Title"]))
+    story.append(Spacer(1, 12))
+
+    # ── Summary table ─────────────────────────
+    summary_data = [
+        ["Network",       network.name],
+        ["Analysis Type", job.analysis_type.value],
+        ["Status",        job.status.value],
+        ["Duration (s)",  str(job.duration_sec)],
+        ["Generated At",  datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")],
+    ]
+    t = Table(summary_data, colWidths=[150, 300])
+    t.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#1F4E79")),
+        ("TEXTCOLOR",  (0, 0), (0, -1), colors.white),
+        ("FONTNAME",   (0, 0), (-1, -1), "Helvetica"),
+        ("GRID",       (0, 0), (-1, -1), 0.5, colors.grey),
+        ("ROWBACKGROUNDS", (0, 0), (-1, -1), [colors.whitesmoke, colors.white]),
+    ]))
+    story.append(t)
+    story.append(Spacer(1, 20))
+
+    # ── Violations table ──────────────────────
+    story.append(Paragraph("Constraint Violations", styles["Heading2"]))
+    if violations:
+        v_data = [["Element", "Name", "Type", "Severity", "Value", "Limit", "Unit"]]
+        for v in violations:
+            v_data.append([
+                v.element_type.value, v.element_name or "—",
+                v.violation_type, v.severity.value,
+                str(v.value), str(v.limit), v.unit or "—",
+            ])
+        vt = Table(v_data, repeatRows=1)
+        vt.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#C00000")),
+            ("TEXTCOLOR",  (0, 0), (-1, 0), colors.white),
+            ("FONTNAME",   (0, 0), (-1, -1), "Helvetica"),
+            ("FONTSIZE",   (0, 0), (-1, -1), 8),
+            ("GRID",       (0, 0), (-1, -1), 0.5, colors.grey),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.whitesmoke, colors.white]),
+        ]))
+        story.append(vt)
+    else:
+        story.append(Paragraph("✅  No violations detected.", styles["Normal"]))
+
+    doc.build(story)
+    return file_path
+
+
+# ─────────────────────────────────────────────
+# UTILITY
+# ─────────────────────────────────────────────
+
+def _safe_float(val) -> float | None:
+    try:
+        return float(val) if val is not None else None
+    except (TypeError, ValueError):
+        return None
                     
