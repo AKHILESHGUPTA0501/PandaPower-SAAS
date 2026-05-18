@@ -3,6 +3,7 @@ from .models import (
     UserRole,
     NetworkStatus,
     AnalysisType,
+    AnalysisStatus,
     FaultType,
     ElementType,
     SeverityLevel,
