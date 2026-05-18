@@ -107,3 +107,102 @@ def list_audit_logs():
             "logs": [l.to_dict() for l in items]
         }, pagination = meta,
     )
+
+@admin_bp.get("/users/recent")
+@admin_required
+def recent_users():
+    try:
+        days = max(1, min(int(request.args.get("days"), 30)),365)
+    except ValueError:
+        days = 30
+    since = datetime.now(timezone.utc) - timedelta(days= days)
+    users= (Users.query.filter(
+        Users.created_at >= since
+    ).order_by(Users.created_at.desc()).all())
+    return ok(data = {
+        "count": len(users),
+        "days": days,
+        "users": [u.to_dict for u in users]
+
+    })
+
+@admin_bp.post("/plans")
+@admin_required
+def create_plan():
+    data = get_json_body()
+    _, err = require_fields(data, ['tier',"name"])
+    if err:
+        return err
+    try:
+        tier = PlanTier(data["tier"])
+    except ValueError:
+        return fail(f"Invalid tier: {data['tier']}",400)
+    if Plan.query.filter_by(tier = tier).first():
+        return fail(f"Plan with tier '{tier.value}' already exist", 409)
+    plan = Plan(
+        tier        = tier,
+        name        = data["name"].strip(),
+        description = data.get("description"),
+        price_inr_per_month = data.get("price_inr_per_month"),
+        price_inr_per_year  = data.get("price_inr_per_year"),
+        max_networks            = data.get("max_networks"),
+        max_buses_per_network   = data.get("max_buses_per_network"),
+        max_analyses_per_month  = data.get("max_analyses_per_month"),
+        max_reports_per_month   = data.get("max_reports_per_month"),
+        max_facilities          = data.get("max_facilities"),
+        max_org_members         = data.get("max_org_members"),
+        allows_contingency      = bool(data.get("allows_contingency",      False)),
+        allows_opf              = bool(data.get("allows_opf",              False)),
+        allows_timeseries       = bool(data.get("allows_timeseries",       False)),
+        allows_pdf_branding     = bool(data.get("allows_pdf_branding",     False)),
+        allows_api_access       = bool(data.get("allows_api_access",       False)),
+        allows_priority_compute = bool(data.get("allows_priority_compute", False)),
+        is_active   = bool(data.get("is_active", True)),
+    )
+    db.session.add(Plan)
+    db.session.commit()
+    return ok(data = {'Plan': plan.to_dict()}, message= "Plan Created", status= 201)
+
+@admin_bp.patch("/plans/<int: plan_id>")
+@admin_required()
+def update_plan(plan_id : int):
+    plan = db.session.get(Plan, plan_id)
+    if plan is None:
+        return fail("Plan Not Found",404)
+    data = get_json_body()
+    editable = {
+        "name", "description",
+        "price_inr_per_month", "price_inr_per_year",
+        "max_networks", "max_buses_per_network",
+        "max_analyses_per_month", "max_reports_per_month",
+        "max_facilities", "max_org_members",
+        "allows_contingency", "allows_opf", "allows_timeseries",
+        "allows_pdf_branding", "allows_api_access", "allows_priority_compute",
+        "is_active",
+    }
+    for k, v in data.items():
+        if k in editable:
+            setattr(plan, k, v)
+    db.session.commit()
+    return ok(data = {"plan": plan.to_dict(0)}, message= "Plan Updated")
+
+@admin_bp.delete('/plans/<int:plan_id>')
+@admin_required
+def deactivate_plan(plan_id : int):
+    plan = db.session.get(Plan, plan_id)
+    if plan is None:
+        return fail("Plan Not Found", 404)
+    plan.is_active= False
+    db.session.commit()
+    return ok(message= "Plan Deactivated")
+
+@admin_bp.get('/jobs/active')
+@admin_required
+def active_jobs():
+    jobs = (AnalysisJob.query.filter(AnalysisJob.status.in_(
+            [AnalysisStatus.PENDING, AnalysisStatus.RUNNING]))
+            .order_by(AnalysisJob.created_at.asc()).all())
+    return ok(data = {
+        "count": len(jobs),
+        "jobs": [j.to_dict() for j in jobs],
+    })
