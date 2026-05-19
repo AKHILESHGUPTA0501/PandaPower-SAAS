@@ -353,4 +353,3 @@ def get_timeseries_result(job_id : int):
     return ok(data = {
         "results": [r.to_dict(include_series = include_series) for r in items],
     })
-    
