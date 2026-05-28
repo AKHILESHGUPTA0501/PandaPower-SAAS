@@ -9,56 +9,39 @@ The generated file is written under app.config['REPORT_FOLDER']
 and the path is stored on the Report row.
 """
 from __future__ import annotations
-
-import io
 import os
+import io
 from datetime import datetime, timezone
 from typing import Any
 
 from flask import current_app
-
 from extension import db
 from Models import AnalysisJob, Report
 
 
 class ReportService:
-
-    # =================================================================
-    #  Entry point — picks PDF or XLSX
-    # =================================================================
     @classmethod
-    def generate(cls, report_id: int, include_diagrams: bool = True) -> Report:
-        report = db.session.get(Report, report_id)
-        if report is None:
-            raise ValueError(f"Report {report_id} not found")
+    def genearte(cls, report_id : int, include_diagrams: bool = True) -> Report:
+        report = db.session.gte(Report, report_id)
+        if report is None: 
+            raise ValueError(f'Report {report_id} not found')
         job = db.session.get(AnalysisJob, report.job_id)
         if job is None:
-            raise ValueError(f"AnalysisJob {report.job_id} not found")
-
-        base_dir = current_app.config.get("REPORT_FOLDER", "reports")
-        os.makedirs(base_dir, exist_ok=True)
-        ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-        filename = f"report_{report.id}_{job.analysis_type.value}_{ts}.{report.format}"
+            raise ValueError(f'AnalysisJob {report.job_id} not found')
+        base_dir = current_app.config.get('REPORT_FOLDER', 'reports')
+        os.makedirs(base_dir, exist_ok= True)
+        ts = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')
+        filename = f'report_{report.id}_{job.analysis_type.value}_{ts}.{report.format}'
         full_path = os.path.join(base_dir, filename)
-
-        if report.format == "pdf":
-            cls._render_pdf(job, full_path, include_diagrams=include_diagrams)
-        elif report.format == "xlsx":
+        if report.format == 'pdf':
+            cls._render_pdf(job, full_path, include_diagrams = include_diagrams)
+        elif report.format == 'xlsx':
             cls._render_xlsx(job, full_path)
         else:
-            raise ValueError(f"Unsupported format: {report.format}")
-
-        report.file_path       = filename
-        report.file_size_bytes = os.path.getsize(full_path)
-        db.session.commit()
-        return report
-
-    # =================================================================
-    #  PDF (ReportLab)
-    # =================================================================
+            raise ValueError(f'Unsupported Format: {report.format}')
+        
     @classmethod
-    def _render_pdf(cls, job: AnalysisJob, out_path: str,
-                    include_diagrams: bool = True) -> None:
+    def _render_pdf(cls, job:AnalysisJob, out_path : str, include_diagrams : bool = True):
         from reportlab.lib.pagesizes import A4
         from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
         from reportlab.lib.units import cm
@@ -67,25 +50,22 @@ class ReportService:
             SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
             PageBreak, Image,
         )
-
         doc = SimpleDocTemplate(
-            out_path, pagesize=A4,
+            out_path, pagesize = A4, 
             leftMargin=2 * cm, rightMargin=2 * cm,
             topMargin=2 * cm, bottomMargin=2 * cm,
         )
         styles = getSampleStyleSheet()
         title_style = ParagraphStyle(
             "Title2", parent=styles["Title"], fontSize=20, spaceAfter=20,
-            textColor=colors.HexColor("#1f4e79"),
+            textColor=colors.HexColor("#1f4e79")
         )
         h2 = ParagraphStyle(
             "H2", parent=styles["Heading2"], fontSize=14,
             textColor=colors.HexColor("#1f4e79"), spaceBefore=14, spaceAfter=8,
         )
-        normal = styles["BodyText"]
-
+        normal = styles['BodyText']
         elements = []
-        # Title
         elements.append(Paragraph(
             f"{job.analysis_type.value.replace('_', ' ').title()} Report",
             title_style))
@@ -94,8 +74,6 @@ class ReportService:
             normal,
         ))
         elements.append(Spacer(1, 12))
-
-        # Job metadata
         elements.append(Paragraph("Analysis Details", h2))
         meta = [
             ["Job ID",        str(job.id)],
@@ -112,14 +90,13 @@ class ReportService:
         ]
         elements.append(cls._table(meta, [5 * cm, 11 * cm]))
         elements.append(Spacer(1, 12))
-
         # Summary
         results = job.results or {}
         summary = results.get("summary") or {}
         if summary:
             elements.append(Paragraph("Summary", h2))
             rows = [[k.replace("_", " ").title(),
-                     f"{v:.4f}" if isinstance(v, float) else str(v)]
+                    f"{v:.4f}" if isinstance(v, float) else str(v)]
                     for k, v in summary.items()]
             elements.append(cls._table(rows, [9 * cm, 7 * cm]))
             elements.append(Spacer(1, 12))
@@ -163,7 +140,7 @@ class ReportService:
             data = [header] + [
                 [(f"{r[k]:.3f}" if isinstance(r.get(k), float)
                                 else str(r.get(k, "")))
-                 for k in header]
+                for k in header]
                 for r in rows
             ]
             elements.append(cls._table(data, header_row=True))
@@ -264,7 +241,7 @@ class ReportService:
         if job.violations:
             vs = wb.create_sheet("Violations")
             headers = ["Element Type", "PP Index", "Element Name",
-                       "Violation Type", "Severity", "Value", "Limit", "Unit", "Message"]
+                    "Violation Type", "Severity", "Value", "Limit", "Unit", "Message"]
             for c, h in enumerate(headers, start=1):
                 cell = vs.cell(row=1, column=c, value=h)
                 cell.font = header_font
@@ -281,14 +258,14 @@ class ReportService:
                 vs.cell(row=r, column=8, value=v.unit)
                 vs.cell(row=r, column=9, value=v.message)
             for col, width in zip("ABCDEFGHI",
-                                  [14, 10, 22, 18, 10, 12, 12, 8, 50]):
+                                [14, 10, 22, 18, 10, 12, 12, 8, 50]):
                 vs.column_dimensions[col].width = width
 
         # Result sheets
         results = job.results or {}
         for res_name in ("res_bus", "res_line", "res_trafo", "res_load",
-                         "res_gen", "res_ext_grid", "res_bus_sc",
-                         "res_line_sc", "res_trafo_sc"):
+                        "res_gen", "res_ext_grid", "res_bus_sc",
+                        "res_line_sc", "res_trafo_sc"):
             rows = results.get(res_name)
             if not rows:
                 continue

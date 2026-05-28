@@ -12,6 +12,7 @@ dependencies = [
     "flask-jwt-extended>=4.7.1",
     "flask-socketio>=5.6.1",
     "flask-sqlalchemy>=3.1.1",
+    "matplotlib>=3.10.9",
     "openpyxl>=3.1.5",
     "pandapower>=3.4.0",
     "redis>=7.4.0",
