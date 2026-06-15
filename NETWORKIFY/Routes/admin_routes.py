@@ -163,8 +163,8 @@ def create_plan():
     db.session.commit()
     return ok(data = {'Plan': plan.to_dict()}, message= "Plan Created", status= 201)
 
-@admin_bp.patch("/plans/<int: plan_id>")
-@admin_required()
+@admin_bp.patch("/plans/<int:plan_id>")
+@admin_required
 def update_plan(plan_id : int):
     plan = db.session.get(Plan, plan_id)
     if plan is None:

@@ -21,7 +21,7 @@ def register_error_handlers(app : Flask) -> None:
 
     @app.before_request
     def assign_request_id():
-        rid = (request.headers.get('X-request-id') or uuid.uuid4.hex[:12])
+        rid = (request.headers.get('X-request-id') or uuid.uuid4().hex[:12])
         g.request_id = rid
         g.user_id = None
 

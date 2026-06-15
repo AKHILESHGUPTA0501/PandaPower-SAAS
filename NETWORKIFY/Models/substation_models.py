@@ -100,9 +100,10 @@ class Substation(db.Model):
         default=lambda: datetime.now(timezone.utc),
         onupdate=lambda: datetime.now(timezone.utc),
     )
+    is_public = db.Column(db.Boolean, default = False, nullable = False)
 
     # Relationships
-    project         = db.relationship("Project", back_populates="substations")
+    project         = db.relationship("Organization", back_populates="substations")
     uploaded_by     = db.relationship("Users", foreign_keys=[uploaded_by_id])
     feeders         = db.relationship(
         "SubstationFeeder", back_populates="substation", cascade="all, delete-orphan"

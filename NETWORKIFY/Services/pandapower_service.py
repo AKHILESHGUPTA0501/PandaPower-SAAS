@@ -219,8 +219,8 @@ class PandapowerService:
 
         # Cascade delete via relationship
         for elem in (net_row.buses + net_row.lines + net_row.transformers +
-                     net_row.loads + net_row.generators + net_row.ext_grids +
-                     net_row.shunts + net_row.switches):
+                    net_row.loads + net_row.generators + net_row.ext_grids +
+                    net_row.shunts + net_row.switches):
             db.session.delete(elem)
         db.session.flush()
 
@@ -231,7 +231,7 @@ class PandapowerService:
             if "bus_geodata" in net and ppi in net.bus_geodata.index:
                 gd = net.bus_geodata.loc[ppi]
                 geo = (float(gd.get("x", math.nan)),
-                       float(gd.get("y", math.nan)))
+                    float(gd.get("y", math.nan)))
             b = Bus(
                 network_id = network_id,
                 pp_index   = int(ppi),

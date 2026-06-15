@@ -78,7 +78,7 @@ class Facility(db.Model):
     updated_at = db.Column(db.DateTime,default=lambda: datetime.now(timezone.utc),onupdate=lambda: datetime.now(timezone.utc))
 
     owner   = db.relationship("Users",   back_populates="facilities")
-    project = db.relationship("Project", back_populates="facilities")
+    project = db.relationship("Organization", back_populates="facilities")
     studies = db.relationship("FeasibilityStudy",back_populates="facility",cascade="all, delete-orphan")
 
     __table_args__ = (

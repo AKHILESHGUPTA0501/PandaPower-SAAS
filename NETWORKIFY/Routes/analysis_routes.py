@@ -87,7 +87,7 @@ def list_jobs():
         pagination = meta
     )
 
-@analysis_bp.get('/<int : job_id>')
+@analysis_bp.get('/<int:job_id>')
 @jwt_required()
 def get_job(job_id : int):
     user = current_user()
@@ -100,7 +100,7 @@ def get_job(job_id : int):
     return ok(data= {
         "job": job.to_dict(include_results= include_results)})
 
-@analysis_bp.delete('/<int : job_id>')
+@analysis_bp.delete('/<int:job_id>')
 @jwt_required()
 def delete_jobs(job_id : int):
     user = current_user()
@@ -115,7 +115,7 @@ def delete_jobs(job_id : int):
     db.session.commit()
     return ok(message= "Job deleted")
 
-@analysis_bp.post('/<int :job_id>/cancel')
+@analysis_bp.post('/<int:job_id>/cancel')
 @jwt_required()
 def cancel_job(job_id:int):
     user = current_user()
@@ -312,7 +312,7 @@ def get_violations(job_id : int):
     items = q.order_by(Violation.severity.desc()).all()
     return ok(data={'violations':[v.to_dict() for v in items]})
 
-@analysis_bp.get('/<int: job_id>/fault-results')
+@analysis_bp.get('/<int:job_id>/fault-results')
 @jwt_required()
 def get_fault_result(job_id : int):
     user = current_user()

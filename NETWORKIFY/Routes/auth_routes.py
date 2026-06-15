@@ -120,7 +120,7 @@ def me():
 
 @auth_bp.patch('/me')
 @jwt_required()
-def me():
+def update_me():
     user = current_user()
     if user is None:
         return fail('User not Found',404)

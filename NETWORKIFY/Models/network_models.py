@@ -40,6 +40,7 @@ class PowerNetwork(db.Model):
     freq_hz       = db.Column(db.Float, default=50.0)    # 50 Hz (India) / 60 Hz (US)
     is_template   = db.Column(db.Boolean, default=False) # IEEE preset flag
     template_name = db.Column(db.String(80), nullable=True)
+    is_public = db.Column(db.Boolean, default = False, nullable = False)
 
     # Serialised pandapower network (full fidelity backup)
     net_json    = db.Column(db.Text, nullable=True)      # pandapower.to_json()
@@ -52,7 +53,7 @@ class PowerNetwork(db.Model):
     )
 
     owner        = db.relationship("Users", back_populates="networks")
-    project      = db.relationship("Project", back_populates="networks")
+    project      = db.relationship("Organization", back_populates="networks")
     buses        = db.relationship("Bus",         back_populates="network", cascade="all, delete-orphan")
     lines        = db.relationship("Line",        back_populates="network", cascade="all, delete-orphan")
     transformers = db.relationship("Transformer", back_populates="network", cascade="all, delete-orphan")
