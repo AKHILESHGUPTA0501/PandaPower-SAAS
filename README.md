@@ -13,6 +13,13 @@ plus a ranked candidate list.
 The platform also supports the standard pandapower analyses:
 
 - AC / DC load flow with violation extraction
+-Successfully validated using the 
+**IEEE 9-Bus** and **IEEE 14-Bus** benchmark systems.
+  - Correctly identifies voltage limit violations, line       loading violations, and network convergence status.
+  - IEEE 9-Bus simulations converged successfully with all operating parameters within permissible limits.
+  - IEEE 14-Bus simulations successfully detected bus overvoltage conditions (up to **1.09 p.u.**) and generated structured warning reports.
+  - Successfully detected transmission line overloads (e.g., **112.25% loading**) and highlighted constraint violations in simulation reports.
+  - Results include bus voltages, line loading percentages, transformer loading, active/reactive power flows, and downloadable PDF reports.
 - IEC 60909 short-circuit analysis
 - N-1 contingency scanning
 - Optimal power flow
